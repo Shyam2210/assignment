@@ -1,10 +1,9 @@
 CREATE TABLE accounts (
-                          account_id       UUID PRIMARY KEY,
-                          balance          NUMERIC(20, 5) NOT NULL DEFAULT 0.00,
-                          currency         VARCHAR(3) NOT NULL,
+                          account_id       VARCHAR(50) PRIMARY KEY,
+                          balance          NUMERIC(15, 5) NOT NULL DEFAULT 0.00,
+                          currency         VARCHAR(3) NOT NULL DEFAULT 'SGD',
                           created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-
 
 CREATE TABLE transactions (
                               id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -18,10 +17,3 @@ CREATE TABLE transactions (
                               created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                               updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-
-
-CREATE TYPE transaction_type AS ENUM ('credit', 'debit');
-
--- for performance
-CREATE INDEX idx_transactions_account_id ON transactions(account_id);
-CREATE INDEX idx_transactions_created_at ON transactions(created_at);

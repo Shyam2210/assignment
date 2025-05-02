@@ -11,7 +11,6 @@ import com.transfers_system.assignment.constants.TransactionType;
 import com.transfers_system.assignment.entities.database.tables.Account;
 import com.transfers_system.assignment.entities.database.tables.Transaction;
 import com.transfers_system.assignment.exceptions.custom.*;
-import com.transfers_system.assignment.helpers.DataValidationHelper;
 import com.transfers_system.assignment.pojos.requests.AddAccountRequest;
 import com.transfers_system.assignment.pojos.requests.TransactionRequest;
 import com.transfers_system.assignment.pojos.response.GetAccountDetailsResponse;
@@ -19,7 +18,7 @@ import com.transfers_system.assignment.pojos.response.TransactionResponse;
 import com.transfers_system.assignment.repository.AccountRepository;
 import com.transfers_system.assignment.repository.TransactionRepository;
 import jakarta.persistence.PersistenceException;
-import org.apache.commons.lang3.StringUtils;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
@@ -28,11 +27,10 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
 
 @Service
-public class AccountService extends AccountBaseService{
+@Slf4j
+public class AccountService extends AccountBaseService {
 
     @Value("${default.currency}")
     private String defaultCurrency;
@@ -43,8 +41,7 @@ public class AccountService extends AccountBaseService{
     @Autowired
     private TransactionRepository transactionRepository;
 
-
-    public Account addNewAccount(AddAccountRequest request) {
+    public void addNewAccount(AddAccountRequest request) {
         returnIfNullOrEmpty(request.getAccountId(), "Account Id must be valid.");
         Account existingAccount = getAccountById(request.getAccountId());
         if (existingAccount != null) {
@@ -56,10 +53,8 @@ public class AccountService extends AccountBaseService{
         newAccount.setBalance(request.getInitialBalance() != null ? request.getInitialBalance() : BigDecimal.ZERO);
         newAccount.setCurrency(request.getCurrency() != null ? request.getCurrency() : defaultCurrency);
 
-        //TODO: Log in the database the new account creation request is received.
-
         try {
-            return accountRepository.save(newAccount);
+            accountRepository.save(newAccount);
         } catch (DataAccessException | PersistenceException ex) {
             throw new DatabaseOperationException("Failed to save new account to the database", ex);
         }
@@ -88,7 +83,8 @@ public class AccountService extends AccountBaseService{
         returnIfAccountDoesNotExist(destinationAccount, request.getDestinationAccountId(), transaction);
 
         //Check if source account has sufficient balance to transfer
-        if (! isSufficientBalance(sourceAccount.getBalance(), request.getAmount())) {
+        if (!isSufficientBalance(sourceAccount.getBalance(), request.getAmount())) {
+            log.error("Insufficient balance in source account for account ID " + request.getSourceAccountId());
             updateTransactionDetailsInDatabase(transaction, TransactionStatus.FAILED, "Insufficient balance in source account.");
             throw new InSufficientBalanceException("Insufficient balance in source account.");
         }
@@ -98,45 +94,51 @@ public class AccountService extends AccountBaseService{
 
         //Update the balance in Destination Account
         destinationAccount.setBalance(destinationAccount.getBalance().add(request.getAmount()));
-//        accountRepository.save(destinationAccount);
 
         //save both the accounts together and transaction log
         try {
+            log.info("Updating source and destination account details.");
             List<Account> accounts = Arrays.asList(sourceAccount, destinationAccount);
             accountRepository.saveAll(accounts);
+            log.info("Updating transaction status.");
             updateTransactionDetailsInDatabase(transaction, TransactionStatus.SUCCESS, "Transaction successful!");
             return new TransactionResponse(true, "Transaction successful!");
         } catch (DataAccessException | PersistenceException ex) {
-            throw new DatabaseOperationException("Failed to save accountto the database", ex);
+            log.error("Exception received while saving records. " + ex.getLocalizedMessage());
+            throw new DatabaseOperationException("Failed to save account to the database", ex);
         }
     }
 
     private void returnIfAccountDoesNotExist(Account account, String accountId) {
-        if(account == null){
+        if (account == null) {
+            log.error("No Account found for account ID: " + accountId);
             throw new AccountDoeNotExistException("Account does not exist for Account ID: " + accountId);
         }
     }
 
     private void returnIfAccountDoesNotExist(Account account, String accountId, Transaction transaction) {
-        if(account == null){
+        if (account == null) {
+            log.error("No Account found for account ID: " + accountId);
             updateTransactionDetailsInDatabase(transaction, TransactionStatus.FAILED, "Account does not exist for Account ID: " + accountId);
             throw new AccountDoeNotExistException("Account does not exist for Account ID: " + accountId);
         }
     }
 
     private void updateTransactionDetailsInDatabase(Transaction transaction, TransactionStatus transactionStatus, String description) {
+        log.info(String.format("Updating transaction status for %s to %s with description %s.", transaction.getId(), transactionStatus.toString(), description));
         transaction.setStatus(transactionStatus.toString());
         transaction.setDescription(description);
         transactionRepository.save(transaction);
     }
 
-    private static void returnIfNullOrEmpty(String request, String message) {
-        if (null == request || request.isEmpty()) {
+    private static void returnIfNullOrEmpty(String accountId, String message) {
+        if (null == accountId || accountId.isEmpty()) {
+            log.error("Account Id is Null or Empty.");
             throw new InvalidRequestException(message);
         }
     }
 
-    private Transaction getTransactionEntity(TransactionRequest request, TransactionType transactionType){
+    private Transaction getTransactionEntity(TransactionRequest request, TransactionType transactionType) {
         Transaction transaction = new Transaction();
         transaction.setTransactionType(transactionType.toString());
         transaction.setAmount(request.getAmount());
@@ -145,7 +147,7 @@ public class AccountService extends AccountBaseService{
         return transaction;
     }
 
-    private boolean isSufficientBalance(BigDecimal balance, BigDecimal amountToBeDebited){
+    private boolean isSufficientBalance(BigDecimal balance, BigDecimal amountToBeDebited) {
         int result = balance.compareTo(amountToBeDebited);
         return result >= 0;
     }
